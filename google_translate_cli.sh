@@ -55,23 +55,6 @@ function parseArgs() {
   done
 }
 
-function urlencode() {
-  # urlencode <string>
-  old_lc_collate=$LC_COLLATE
-  LC_COLLATE=C
-
-  local length="${#1}"
-  for ((i = 0; i < length; i++)); do
-    local c="${1:i:1}"
-    case $c in
-    [a-zA-Z0-9.~_-]) printf "$c" ;;
-    *) printf '%%%02X' "'$c" ;;
-    esac
-  done
-
-  LC_COLLATE=$old_lc_collate
-}
-
 if [ $# -ne 0 ]; then
   parseArgs "$@"
 fi
@@ -98,18 +81,22 @@ if [ -z "${targetLang}" ]; then
   fi
 fi
 
-encodedQuery=$(urlencode "$query")
+REQUEST_HEADERS=request_headers.txt
+printf "Accept: application/json; charset=utf-8" >> "${REQUEST_HEADERS}"
+if [ "${sourceLang}" != "auto" ]; then
+    printf "\nAccept-Language: ${sourceLang}" >> "${REQUEST_HEADERS}"
+fi
 
 RESPONSE=response.txt
-HEADERS=headers.txt
+RESPONSE_HEADERS=headers.txt
 
-curl -s -D $HEADERS "$1" -o $RESPONSE -H "Accept: application/json" \
-  "https://translate.googleapis.com/translate_a/single?client=${CLIENT}&sl=${sourceLang}&tl=${targetLang}&dt=${DT}&ie=${CODING}&oe=${CODING}&q=${encodedQuery}"
+curl -s -D $RESPONSE_HEADERS "$1" -o $RESPONSE -H @"${REQUEST_HEADERS}" \
+  "https://translate.googleapis.com/translate_a/single?client=${CLIENT}&sl=${sourceLang}&tl=${targetLang}&dt=${DT}&ie=${CODING}&oe=${CODING}&q=${query// /%20}"
 
-status=$(head -n 1 <"${HEADERS}" | awk '{print $2}')
+status=$(head -n 1 <"${RESPONSE_HEADERS}" | awk '{print $2}')
 if [ "${status}" -ne 200 ]; then
   printf "Translation failed with status %s!\n\n" "${status}" 1>&2
-  rm "${RESPONSE}" "${HEADERS}"
+  rm "${RESPONSE}" "${RESPONSE_HEADERS}"
   exit 1
 else
   translationResponse=$(cat "${RESPONSE}")
@@ -123,12 +110,12 @@ else
   if [ "${verbose}" == true ]; then
     size=${#splitResponse[@]}
     printf "Translation result\n"
-    printf "\t From: %s\n" "${result}"
+    printf "\t From: %s\n" "${splitResponse[((size - 1))]}"
     printf "\t To: %s\n" "${targetLang}"
     printf "\t Original text: \"%s\"\n" "${query}"
     printf "\t Translated text: %s\n" "${splitResponse[0]}"
   else
     echo "${result}"
   fi
-  rm "${RESPONSE}" "${HEADERS}"
+  rm "${RESPONSE}" "${RESPONSE_HEADERS}" "${REQUEST_HEADERS}"
 fi
